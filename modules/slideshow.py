@@ -24,9 +24,12 @@ import json
 import math
 import re
 import subprocess
+import cec
 
 from modules.remember import remember
 from modules.helper import helper
+
+skip = Event()
 
 class slideshow:
   def __init__(self, display, settings, oauth, colormatch):
@@ -39,6 +42,14 @@ class slideshow:
     self.imageCurrent = None
     self.imageMime = None
     self.void = open(os.devnull, 'wb')
+    cec.add_callback(self.cec_cb,cec.EVENT_KEYPRESS)
+    cec.init()
+
+  def cec_cb(event, *args):
+    if args[1]==0:
+      if args[0]==4:
+        #got right from remote
+        skip.set()
 
   def getCurrentImage(self):
     return self.imageCurrent, self.imageMime
@@ -149,11 +160,12 @@ class slideshow:
           logging.warning('Mime type %s isn\'t supported' % mime)
 
       time_process = time.time() - time_process
-      logging.debug('Processing time was %d seconds.' % time_process)
+      logging.debug('Processing time was %d seconds.' % time_process)y
       # Delay before we show the image (but take processing into account)
       # This should keep us fairly consistent
       if time_process < delay:
-        time.sleep(delay - time_process)
+        skip.wait(delay-time_process)
+        #time.sleep(delay - time_process)
       if tries == 0:
         self.display.message('Issues showing images\n\nCheck network and settings')
       else:
