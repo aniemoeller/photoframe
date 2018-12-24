@@ -124,22 +124,22 @@ class slideshow:
           continue
 
         # Now, lets make sure we didn't see this before
-        uri, mime, title, ts = self.pickImage(imgs, memory)
-        if uri == '':
+        photo_id, mime, title, ts = self.pickImage(imgs, memory)
+        if photo_id == '':
           logging.warning('No image was returned from pickImage')
           continue # Do another one (well, it means we exhausted available images for this keyword)
 
         # Avoid having duplicated because of overlap from keywords
         memory = remember('/tmp/overallmemory.json', 0)
-        if memory.seen(uri):
+        if memory.seen(photo_id):
           continue
         else:
-          memory.saw(uri)
+          memory.saw(photo_id)
 
         ext = helper.getExtension(mime)
         if ext is not None:
           filename = os.path.join(self.settings.get('tempfolder'), 'image.%s' % ext)
-          if self.downloadImage(uri, filename):
+          if self.downloadImage(photo_id, filename):
             self.imageCurrent = filename
             self.imageMime = mime
             break
@@ -189,11 +189,11 @@ class slideshow:
 
     
     title = ""
-    uri = entry['baseUrl']+"=w"+str(self.settings.getUser("width"))+"-h"+str(self.settings.getUser("height"))
+    photo_id = entry['id']#+"=w"+str(self.settings.getUser("width"))+"-h"+str(self.settings.getUser("height"))
     timestamp = entry['mediaMetadata']['creationTime']
     mime = entry['mimeType']
 
-    return (uri, mime, title, timestamp)
+    return (photo_id, mime, title, timestamp)
 
   def getImages(self, keyword):
     # Create filename from keyword
@@ -268,22 +268,26 @@ class slideshow:
       os.remove(filename)
       return None, filename
 
-  def downloadImage(self, uri, dest):
+  def downloadImage(self, photo_id, dest):
     #logging.debug('Downloading %s...' % uri)
     filename, ext = os.path.splitext(dest)
     temp = "%s-org%s" % (filename, ext)
-    if self.oauth.request(uri, destination=temp):
-      if self.settings.getUser('blur') == 'activated':
-        helper.makeFullframe(temp, self.settings.getUser('width'), self.settings.getUser('height'))
-      if self.colormatch.hasSensor():
-        if not self.colormatch.adjust(temp, dest):
-          logging.warning('Unable to adjust image to colormatch, using original')
-          os.rename(temp, dest)
+    #picture      
+    url = 'https://photoslibrary.googleapis.com/v1/mediaItems/'+photo_id
+    data = self.oauth.request(url)
+    if data.status_code == 200:
+      if self.oauth.request(data.json()['baseUrl']+"=w"+str(self.settings.getUser("width"))+"-h"+str(self.settings.getUser("height")), destination=temp):
+        if self.settings.getUser('blur') == 'activated':
+          helper.makeFullframe(temp, self.settings.getUser('width'), self.settings.getUser('height'))
+        if self.colormatch.hasSensor():
+          if not self.colormatch.adjust(temp, dest):
+            logging.warning('Unable to adjust image to colormatch, using original')
+            os.rename(temp, dest)
+          else:
+            os.remove(temp)
         else:
-          os.remove(temp)
+          os.rename(temp, dest)
+        return True
       else:
-        os.rename(temp, dest)
-      return True
-    else:
-      return False
+        return False
 
