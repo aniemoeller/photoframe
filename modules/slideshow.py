@@ -189,7 +189,7 @@ class slideshow:
 
     
     title = ""
-    photo_id = entry['id']#+"=w"+str(self.settings.getUser("width"))+"-h"+str(self.settings.getUser("height"))
+    photo_id = entry['id']
     timestamp = entry['mediaMetadata']['creationTime']
     mime = entry['mimeType']
 
@@ -213,7 +213,7 @@ class slideshow:
 
     if not os.path.exists(filename):
       # check if keyword is album
-      url = 'https://photoslibrary.googleapis.com/v1/albums'
+      '''url = 'https://photoslibrary.googleapis.com/v1/albums'
       data = self.oauth.request(url).json()
       albumid = None
       picturecount = self.settings.getUser('picturecount')
@@ -251,16 +251,22 @@ class slideshow:
       url = 'https://photoslibrary.googleapis.com/v1/mediaItems:search'
       #logging.debug('Downloading image list for %s...' % keyword)
       data = self.oauth.request(url, params=params,post=True)
-    
-      if data.status_code != 200:
+      '''
+      albumid = None
+      albumid = self.checkForOwnAlbum(keyword)
+      if albumid is None:
+        albumid = self.checkForSharedAlbum(keyword)
+      data = self.getPhotoList(albumid)
+
+      if len(data) == 0:
         logging.warning('Requesting photo failed with status code %d (%s)', data.status_code, data.reason)
         return None, filename
       with open(filename, 'w') as f:
-        f.write(data.content)
+        json.dump(data,f)
     images = None
     try:
       with open(filename) as f:
-        images = json.load(f)['mediaItems']
+        images = json.load(f)
       logging.debug('Loaded %d images into list' % len(images))
       return images, filename
     except:
@@ -290,4 +296,87 @@ class slideshow:
         return True
       else:
         return False
+
+  def checkForSharedAlbum(self,keyword):
+    logging.debug('checking shared albums.')
+    url = 'https://photoslibrary.googleapis.com/v1/sharedAlbums'
+    data = self.oauth.request(url).json()
+    albumid = None
+    for i in range(len(data['sharedAlbums'])):
+      if 'title' in data['sharedAlbums'][i] and data['sharedAlbums'][i]['title'] == keyword:
+        albumid = data['sharedAlbums'][i]['id']
+    if albumid is None:
+      logging.info('Could not find shared album named %s' % keyword)
+    return albumid
+  
+  def checkForOwnAlbum(self,keyword):
+    logging.debug('checking own albums.')
+    url = 'https://photoslibrary.googleapis.com/v1/albums'
+    data = self.oauth.request(url).json()
+    albumid = None
+    for i in range(len(data['albums'])):
+      if 'title' in data['albums'][i] and data['albums'][i]['title'] == keyword:
+        albumid = data['albums'][i]['id']
+    if albumid is None:
+      logging.info('Could not find own album named %s' % keyword)
+    return albumid
+
+  def getPhotoList(self,albumid):
+    picturecount = self.settings.getUser('picturecount')
+    mediaItems = []
+    params = {}
+    if albumid is None:
+      logging.info('downloading latest photos..')
+      endDate = datetime.date.today()
+      startDate = endDate - datetime.timedelta(days=60)
+      params = {
+          'pageSize' : 100,
+          'filters': {
+            'dateFilter':{
+              'ranges':[{
+                'startDate':{
+                  "year": startDate.year,
+                  "month": startDate.month,
+                  "day": startDate.day
+                },
+                'endDate':{
+                  "year": endDate.year,
+                  "month": endDate.month,
+                  "day": endDate.day
+                }
+              }]
+            },
+            'mediaTypeFilter': {
+              'mediaTypes': [
+                'PHOTO'
+              ]
+            }
+          }
+        }
+    else:
+      logging.info('Downloading pictures from the album')
+      params = {
+          'albumId' : albumid,
+          'pageSize' : 100,
+        }
+    if picturecount <= 100:
+      params['pageSize'] = picturecount
+    # Request albums      
+    url = 'https://photoslibrary.googleapis.com/v1/mediaItems:search'
+    #logging.debug('Downloading image list for %s...' % keyword)
+    data = self.oauth.request(url, params=params,post=True).json()
+    logging.debug('received %d photo ids. Looking for %d pictures' % (len(data['mediaItems']),picturecount))
+    mediaItems = data['mediaItems']
+    while 'nextPageToken' in data and len(mediaItems) < picturecount:
+      params['pageToken'] = data['nextPageToken']
+      data = self.oauth.request(url, params=params,post=True)
+      logging.debug('Data code == %d' % data.status_code)
+      if data.status_code == 200:
+        data = data.json()
+        logging.debug('received %d photo ids.' % len(data['mediaItems']))
+        mediaItems = mediaItems + data['mediaItems']
+      else:
+        break
+    logging.debug('found %d photo ids overall.' % len(mediaItems))
+    return mediaItems
 

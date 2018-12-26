@@ -17,10 +17,8 @@
 Validator = function() {
 	this.picturecount = function(input) {
 		i = parseInt(input);
-		if(i<0)
+		if(i<1)
 			i=10;
-		if(i>1000)
-			i=1000;
 		return i.toString();
 	}
 
